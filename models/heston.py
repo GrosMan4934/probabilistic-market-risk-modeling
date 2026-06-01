@@ -7,7 +7,7 @@ from skopt import gp_minimize
 from skopt.space import Real
 
 @njit(fastmath=True)
-def heston_llh(data, mu, kappa, omega, psi, eps_all, u_all, M, floor, dt):
+def heston_llh(data, mu, kappa, theta, xi, eps_all, u_all, M, floor, dt):
     v = np.linspace(0.001, 0.3, M).astype(np.float64)
     logW = np.full(M, -np.log(M), dtype=np.float64)
     rho = -0.4
@@ -26,8 +26,8 @@ def heston_llh(data, mu, kappa, omega, psi, eps_all, u_all, M, floor, dt):
 
         v = np.maximum(v, floor)
 
-        a = v + kappa * (omega - v) * dt
-        v_new = np.maximum(a + psi * np.sqrt(v * dt) * eps, floor)
+        a = v + kappa * (theta - v) * dt
+        v_new = np.maximum(a + xi * np.sqrt(v * dt) * eps, floor)
 
         m = mu * dt - 0.5 * v * dt + rho * np.sqrt(v * dt) * eps
 
@@ -90,9 +90,9 @@ class Heston(BaseTimeSeriesModel):
         M = self.n_particles
 
         params = np.array(params)
-        mu, kappa, omega, psi = params
+        mu, kappa, theta, xi = params
 
-        feller_val = 2 * kappa * omega - psi**2
+        feller_val = 2 * kappa * theta - xi**2
         
         if feller_val <= 0:
             # Штраф за нарушение условия Феллера
@@ -104,7 +104,7 @@ class Heston(BaseTimeSeriesModel):
         data_arr = np.asarray(data, dtype=np.float64)
 
         loglike, _, _ = heston_llh(
-            data_arr, mu, kappa, omega, psi, 
+            data_arr, mu, kappa, theta, xi, 
             eps_all, u_all, M, floor, dt
         )
 
@@ -121,14 +121,14 @@ class Heston(BaseTimeSeriesModel):
         rng = np.random.default_rng(self.random_state)
         M = self.n_particles
 
-        mu, kappa, omega, psi = self.params
+        mu, kappa, theta, xi = self.params
 
         eps_all = rng.normal(size=(len(data), M))
         u_all = rng.random(size=len(data))
         data_arr = np.asarray(data, dtype=np.float64)
 
         loglike, _, _ = heston_llh(
-            data_arr, mu, kappa, omega, psi,
+            data_arr, mu, kappa, theta, xi,
             eps_all, u_all, M, floor, dt
         )
 
@@ -139,14 +139,14 @@ class Heston(BaseTimeSeriesModel):
         rng = np.random.default_rng(self.random_state)
         M = self.n_particles
 
-        mu, kappa, omega, psi = self.params
+        mu, kappa, theta, xi = self.params
 
         eps_all = rng.normal(size=(len(data), M))
         u_all = rng.random(size=len(data))
         data_arr = np.asarray(data, dtype=np.float64)
 
         _, filtered_v, filtered_m = heston_llh(
-            data_arr, mu, kappa, omega, psi,
+            data_arr, mu, kappa, theta, xi,
             eps_all, u_all, M, floor, dt
         )
 
@@ -180,8 +180,8 @@ class Heston(BaseTimeSeriesModel):
         dimensions = [
             Real(-1.0, 1.0, name='mu'),
             Real(0.01, 10, name='kappa'), 
-            Real(0.001, 0.3, name='omega'),
-            Real(0.01, 0.7, name='psi')
+            Real(0.001, 0.3, name='theta'),
+            Real(0.01, 0.7, name='xi')
         ]
         
         def objective(params):
@@ -207,7 +207,7 @@ class Heston(BaseTimeSeriesModel):
     def cdf(self, x, history=None, floor=1e-10, dt=1/252):
         rng = np.random.default_rng(self.random_state)
         M = self.n_particles
-        mu, kappa, omeg, psi = self.params
+        mu, kappa, theta, xi = self.params
         rho = -0.4
         
         log_2pi = np.log(2.0 * np.pi)
@@ -219,9 +219,9 @@ class Heston(BaseTimeSeriesModel):
         if history is not None:
             for y in history:
                 v = np.maximum(v, floor)
-                a = v + kappa * (omeg - v) * dt
+                a = v + kappa * (theta - v) * dt
                 eps = rng.normal(size=M)
-                v_new = np.maximum(a + psi * np.sqrt(v * dt) * eps, floor)
+                v_new = np.maximum(a + xi * np.sqrt(v * dt) * eps, floor)
                 m = mu * dt - 0.5 * v * dt + rho * np.sqrt(v * dt) * eps
                 s_2 = np.maximum((1 - rho**2) * v * dt, floor)
 
@@ -258,9 +258,9 @@ class Heston(BaseTimeSeriesModel):
             cdf_values[i] = np.sum(W * norm.cdf((yt - pred_m) / np.sqrt(pred_s2)))
 
             # Uенерируем шоки и обновляем v для следующего дня
-            a = v + kappa * (omeg - v) * dt
+            a = v + kappa * (theta - v) * dt
             eps = rng.normal(size=M)
-            v_new = np.maximum(a + psi * np.sqrt(v * dt) * eps, floor)
+            v_new = np.maximum(a + xi * np.sqrt(v * dt) * eps, floor)
 
             # Условные m и s_2 для расчета правдоподобия
             m = mu * dt - 0.5 * v * dt + rho * np.sqrt(v * dt) * eps
@@ -286,5 +286,5 @@ class Heston(BaseTimeSeriesModel):
         return cdf_values
     
     def params_get(self):
-        mu, kappa, omeg, psi = self.params
-        return mu, kappa, omeg, psi
+        mu, kappa, theta, xi = self.params
+        return mu, kappa, theta, xi
